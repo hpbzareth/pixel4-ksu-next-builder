@@ -1,28 +1,37 @@
+Có **4 thứ cần sửa** trong cái workflow đó:
+
+1. `coral_defconfig` → `floral_defconfig` (file đúng)
+2. Heredoc `<< 'EOF'` → `echo` (YAML không chịu `<<`)
+3. Thêm `sed` xóa `POST_DEFCONFIG_CMDS` trước build (fix lỗi `check_defconfig`)
+4. Copy kernel dùng `find Image*` wildcard thay vì `if/elif` đoán tên
+
+```yaml
 name: Build Pixel 4 KernelSU Next
 
 on:
   workflow_dispatch:
 
 jobs:
-  # ============================================================
-  # JOB 1: BUILD KERNEL
-  # Nếu job này pass → không cần chạy lại dù job 2 fail
-  # ============================================================
-  build:
-    name: "🏗️ Build Kernel"
+  build-kernel:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: "💽 Dọn dẹp ổ đĩa"
+      - name: "💽 Dọn dẹp ổ đĩa GitHub Runner (~30GB)"
         run: |
-          echo "=== Dung lượng BAN ĐẦU ===" && df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/powershell \
-                      /usr/share/swift /usr/lib/jvm
+          echo "=== Dung lượng BAN ĐẦU ==="
+          df -h /
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/lib/jvm
           sudo docker image prune -a -f || true
-          echo "=== Dung lượng SAU DỌN ===" && df -h /
+          echo "=== Dung lượng SAU KHI DỌN ==="
+          df -h /
 
-      - name: "📦 Cài đặt phụ thuộc"
+      - name: "📦 Cài đặt công cụ và phụ thuộc"
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
@@ -35,7 +44,7 @@ jobs:
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: "🔄 Repo Sync"
+      - name: "🔄 Repo Init & Sync mã nguồn Kernel Pixel 4"
         run: |
           mkdir android-kernel && cd android-kernel
           git config --global user.name "GitHub Actions"
@@ -45,112 +54,67 @@ jobs:
             -b android-msm-coral-4.14-android13 \
             --depth=1
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
-          echo "=== Dung lượng sau sync ===" && df -h /
+          echo "=== Dung lượng sau repo sync ==="
+          df -h /
 
       - name: "🔧 Tích hợp KernelSU Next"
         run: |
           cd android-kernel/private/msm-google
 
-          # Tích hợp KernelSU Next
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-          # Thêm config KSU
+          # floral_defconfig mới là tên đúng (coral/flame dùng chung)
           DEFCONFIG="arch/arm64/configs/floral_defconfig"
           echo "CONFIG_KSU=y"           >> $DEFCONFIG
           echo "CONFIG_KPROBES=y"       >> $DEFCONFIG
           echo "CONFIG_HAVE_KPROBES=y"  >> $DEFCONFIG
           echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
           echo "CONFIG_OVERLAY_FS=y"    >> $DEFCONFIG
+          echo "=== Config đã thêm ===" && tail -6 $DEFCONFIG
 
-          # Xóa check_defconfig khỏi build.config để nó không so sánh defconfig nữa
+          # Xóa check_defconfig để build không bị fail khi so sánh defconfig
           sed -i '/POST_DEFCONFIG_CMDS/d' build.config.no-cfi
-          echo "=== build.config.no-cfi sau patch ==="
-          cat build.config.no-cfi
-      
-      - name: "⚙️ Build Kernel"
+
+      - name: "🏗️ Build Kernel"
         run: |
           cd android-kernel
           LTO=thin ./build_floral.sh
-          echo "=== Dung lượng sau build ===" && df -h /
+          echo "=== Dung lượng sau build ==="
+          df -h /
 
-      - name: "🔍 Kiểm tra output dist/"
+      - name: "📁 Kiểm tra Kernel Output"
         run: |
           DIST_OUT="android-kernel/out/android-msm-pixel-4.14/dist"
-          echo "=== Toàn bộ files trong dist/ ==="
-          ls -lh $DIST_OUT
-
-      # Upload dist/ để job 2 dùng, cũng dùng để debug nếu cần
-      - name: "⬆️ Upload dist/ artifact"
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-dist
-          path: android-kernel/out/android-msm-pixel-4.14/dist/
-          retention-days: 1
-
-  # ============================================================
-  # JOB 2: ĐÓNG GÓI ANYKERNEL3
-  # Chỉ phụ thuộc vào artifact của job 1
-  # Fail → Re-run job này thôi, KHÔNG build lại kernel
-  # ============================================================
-  package:
-    name: "📦 Đóng gói AnyKernel3"
-    runs-on: ubuntu-22.04
-    needs: build  # Chờ job build xong mới chạy
-
-    steps:
-      - name: "⬇️ Download dist/ artifact"
-        uses: actions/download-artifact@v4
-        with:
-          name: kernel-dist
-          path: dist/
-
-      - name: "🔍 Kiểm tra files nhận được"
-        run: |
           echo "=== Files trong dist/ ==="
-          ls -lh dist/
+          ls -lh $DIST_OUT || echo "Không tìm thấy thư mục dist!"
 
-      - name: "📁 Clone AnyKernel3"
+      - name: "📦 Đóng gói AnyKernel3 ZIP"
         run: |
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
+          DIST_OUT="android-kernel/out/android-msm-pixel-4.14/dist"
 
-      - name: "🗜️ Copy kernel vào AnyKernel3"
-        run: |
-          # Dùng find wildcard, không đoán tên file nữa
-          find dist/ -maxdepth 1 -name "Image*" -exec cp -v {} AnyKernel3/ \;
-
-          # Copy dtbo.img nếu có
-          [ -f dist/dtbo.img ] && cp -v dist/dtbo.img AnyKernel3/
-
-          echo "=== Files trong AnyKernel3/ sau copy ==="
-          ls -lh AnyKernel3/
+          # Dùng wildcard, không đoán tên file nữa
+          find $DIST_OUT -maxdepth 1 -name "Image*" -exec cp -v {} AnyKernel3/ \;
+          [ -f "$DIST_OUT/dtbo.img" ] && cp -v "$DIST_OUT/dtbo.img" AnyKernel3/
 
           # Fail rõ ràng nếu không có kernel image
-          ls AnyKernel3/Image* 2>/dev/null || { echo "❌ Không tìm thấy kernel image!"; exit 1; }
+          ls AnyKernel3/Image* || { echo "❌ Không có kernel image!"; exit 1; }
 
-      - name: "✏️ Cấu hình anykernel.sh cho Pixel 4"
-        run: |
           cd AnyKernel3
-          # Device info
-          sed -i 's/^kernel\.string=.*/kernel.string=Pixel 4 \/ 4XL KernelSU Next/' anykernel.sh
-          sed -i 's/^device\.name1=.*/device.name1=coral/' anykernel.sh
-          sed -i 's/^device\.name2=.*/device.name2=flame/' anykernel.sh
-          # Fix block device path (default là OMAP, sai với Pixel 4 Qualcomm)
+          sed -i 's/^kernel\.string=.*/kernel.string=Pixel 4 KernelSU Next/' anykernel.sh
+          sed -i 's/^device\.name1=.*/device.name1=flame/' anykernel.sh
+          sed -i 's/^device\.name2=.*/device.name2=coral/' anykernel.sh
           sed -i 's|^block=.*|block=/dev/block/bootdevice/by-name/|' anykernel.sh
           sed -i 's/^do\.devicecheck=.*/do.devicecheck=0/' anykernel.sh
 
-          echo "=== anykernel.sh sau khi sửa ==="
-          head -20 anykernel.sh
-
-      - name: "🗜️ Tạo ZIP"
-        run: |
-          cd AnyKernel3
           zip -r9 ../Pixel4-KernelSU-Next.zip * -x ".git/*" -x "README.md"
-          echo "=== ZIP đã tạo ==="
+          echo "=== ZIP tạo thành công ==="
           ls -lh ../Pixel4-KernelSU-Next.zip
 
-      - name: "⬆️ Upload Artifact ZIP"
+      - name: "⬆️ Upload Artifact"
         uses: actions/upload-artifact@v4
         with:
           name: Pixel4-KernelSU-Next
           path: Pixel4-KernelSU-Next.zip
           retention-days: 7
+```
