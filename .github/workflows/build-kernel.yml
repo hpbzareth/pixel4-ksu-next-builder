@@ -52,13 +52,12 @@ jobs:
           cd android-kernel/private/msm-google
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
           DEFCONFIG="arch/arm64/configs/floral_defconfig"
-          cat >> $DEFCONFIG << 'EOF'
-CONFIG_KSU=y
-CONFIG_KPROBES=y
-CONFIG_HAVE_KPROBES=y
-CONFIG_KPROBE_EVENTS=y
-CONFIG_OVERLAY_FS=y
-EOF
+          echo "CONFIG_KSU=y"             >> $DEFCONFIG
+          echo "CONFIG_KPROBES=y"         >> $DEFCONFIG
+          echo "CONFIG_HAVE_KPROBES=y"    >> $DEFCONFIG
+          echo "CONFIG_KPROBE_EVENTS=y"   >> $DEFCONFIG
+          echo "CONFIG_OVERLAY_FS=y"      >> $DEFCONFIG
+          echo "=== Config KSU đã thêm ===" && tail -6 $DEFCONFIG
           echo "=== Config KSU đã thêm ===" && tail -6 $DEFCONFIG
 
       - name: "⚙️ Build Kernel"
