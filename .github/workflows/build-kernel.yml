@@ -109,4 +109,3 @@ jobs:
           name: Pixel4-KernelSU-Next
           path: Pixel4-KernelSU-Next.zip
           retention-days: 7
-```
