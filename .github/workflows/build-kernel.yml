@@ -37,18 +37,37 @@ jobs:
           repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-coral-4.14-android13 --depth=1
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
 
-      - name: "🔧 Tích hợp KernelSU Next (Manual Hook cho Kernel 4.14)"
+      - name: "🔧 Tích hợp KernelSU Next & Force Config"
         run: |
-          # Vẫn phải cd chuẩn từ root workspace
           cd $GITHUB_WORKSPACE/android-kernel/private/msm-google
 
-          # Setup KernelSU Next
+          # 1. Tải và Patch KSU Next bằng manual hook / setup script
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-          # Patch defconfig
+          # 2. Bắn trực tiếp CONFIG_KSU vào CẢ defconfig VÀ build.config để tránh bị wipe
           DEFCONFIG="arch/arm64/configs/coral_defconfig"
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
+
+          # Append thẳng vào build.config.common cho chắc cú
+          echo "ARCH=arm64" >> build.config.common
+          echo "WRITE_CONFIG_KSU=y" >> build.config.common
+
+      - name: "🏗️ Build Kernel (In Log Chi Tiết)"
+        run: |
+          cd $GITHUB_WORKSPACE/android-kernel
+          
+          # Tắt LTO để tránh văng RAM / OOM Compiler crash
+          export LTO=none
+          
+          # Chạy build và bắt exit code
+          ./build_floral.sh || { echo "❌ BUILD KERNEL BỊ CRASH RỒI CU!"; exit 1; }
+
+      - name: "📁 Debug Scan Tìm File Image Toàn Ổ Đĩa"
+        if: always()
+        run: |
+          echo "=== TÌM TẤT CẢ FILE IMAGE TRONG OUT/ ==="
+          find $GITHUB_WORKSPACE/android-kernel/out/ -name "Image*" -o -name "*.ko" || echo "Éo có file Image nào được tạo ra cả!"
 
       - name: "🏗️ Build Kernel"
         run: |
