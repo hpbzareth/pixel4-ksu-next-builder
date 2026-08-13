@@ -78,7 +78,7 @@ jobs:
       - name: "🏗️ Build Kernel"
         run: |
           cd android-kernel
-          LTO=thin BUILD_CONFIG=private/msm-google/build.config.coral ./build/build.sh
+          LTO=thin ./build_floral.sh
 
           echo "=== Dung lượng sau build ==="
           df -h /
