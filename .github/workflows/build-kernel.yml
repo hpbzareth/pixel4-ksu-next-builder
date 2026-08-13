@@ -63,7 +63,7 @@ jobs:
       - name: "⚙️ Build Kernel"
         run: |
           cd android-kernel
-          LTO=thin ./build_floral.sh
+          LTO=thin POST_DEFCONFIG_CMDS="" ./build_floral.sh
           echo "=== Dung lượng sau build ===" && df -h /
 
       - name: "🔍 Kiểm tra output dist/"
