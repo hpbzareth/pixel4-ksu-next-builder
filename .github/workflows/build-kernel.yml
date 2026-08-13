@@ -6,91 +6,119 @@ on:
 jobs:
   build-kernel:
     runs-on: ubuntu-22.04
-    steps:
-      - name: Dọn dẹp ổ đĩa GitHub Runner
-        uses: easimon/maximize-build-space@v10
-        with:
-          root-reserve-mb: 8192
-          swap-size-mb: 1
-          remove-dots-android: 'true'
-          remove-dotnet: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
 
-      - name: Cài đặt công cụ và phụ thuộc
+    steps:
+      - name: "💽 Dọn dẹp ổ đĩa GitHub Runner (~30GB)"
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-            gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev \
-            libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3
+          echo "=== Dung lượng BAN ĐẦU ==="
+          df -h /
+
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/lib/jvm
+          sudo docker image prune -a -f || true
+
+          echo "=== Dung lượng SAU KHI DỌN ==="
+          df -h /
+
+      - name: "📦 Cài đặt công cụ và phụ thuộc"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            git-core gnupg flex bison build-essential zip curl \
+            zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 \
+            lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev \
+            libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3
 
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Khởi tạo và Repo Sync mã nguồn Kernel
+      - name: "🔄 Repo Init & Sync mã nguồn Kernel Pixel 4"
         run: |
           mkdir android-kernel && cd android-kernel
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-          # Sync branch android-msm-coral-4.14-android13 của Pixel 4
-          repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-coral-4.14-android13 --depth=1
-          repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle
+          repo init \
+            -u https://android.googlesource.com/kernel/manifest \
+            -b android-msm-coral-4.14-android13 \
+            --depth=1
 
-      - name: Tích hợp KernelSU Next
+          repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
+
+          echo "=== Dung lượng sau repo sync ==="
+          df -h /
+
+      - name: "🔧 Tích hợp KernelSU Next"
         run: |
           cd android-kernel/private/msm-google
-          
-          # Chèn KernelSU Next (dùng branch 'next' hoặc 'next-legacy' cho kernel 4.14)
-          curl -LSs "https://raw.githubusercontent.com/rifs33/KernelSU-Next/next/kernel/setup.sh" | bash -
 
-          # Thêm các Config bắt buộc cho KernelSU & Kprobes vào defconfig
+          # Chèn KernelSU Next vào kernel tree
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+
+          # Bật config KSU + Kprobes vào defconfig của coral
           DEFCONFIG="arch/arm64/configs/coral_defconfig"
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
-          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
+          cat >> $DEFCONFIG << 'EOF'
+          CONFIG_KSU=y
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          CONFIG_OVERLAY_FS=y
+          EOF
 
-      - name: Tiến hành Build Kernel
+          echo "=== Config đã thêm ==="
+          tail -10 $DEFCONFIG
+
+      - name: "🏗️ Build Kernel"
         run: |
           cd android-kernel
-          
-          # Thực hiện lệnh build mặc định của Google dành cho Pixel 4 (coral)
           LTO=thin BUILD_CONFIG=private/msm-google/build.config.coral ./build/build.sh
 
-      - name: Đóng gói AnyKernel3 ZIP
+          echo "=== Dung lượng sau build ==="
+          df -h /
+
+      - name: "📁 Kiểm tra Kernel Output"
         run: |
-          cd android-kernel
+          DIST_OUT="android-kernel/out/android-msm-pixel-4.14/dist"
+          echo "=== Files trong dist/ ==="
+          ls -lh $DIST_OUT || echo "Không tìm thấy thư mục dist!"
+
+      - name: "📦 Đóng gói AnyKernel3 ZIP"
+        run: |
           git clone https://github.com/osm0sis/AnyKernel3 --depth=1 AnyKernel3
-          
-          # Copy Kernel Image và DTB vào AnyKernel3
-          DIST_OUT="out/android-msm-pixel-4.14/dist"
+          DIST_OUT="android-kernel/out/android-msm-pixel-4.14/dist"
+
+          # Copy kernel image (ưu tiên Image.lz4-dtb rồi mới đến các định dạng khác)
           if [ -f "$DIST_OUT/Image.lz4-dtb" ]; then
-            cp "$DIST_OUT/Image.lz4-dtb" AnyKernel3/Image.lz4-dtb
+            cp "$DIST_OUT/Image.lz4-dtb" AnyKernel3/
           elif [ -f "$DIST_OUT/Image.gz-dtb" ]; then
-            cp "$DIST_OUT/Image.gz-dtb" AnyKernel3/Image.gz-dtb
+            cp "$DIST_OUT/Image.gz-dtb" AnyKernel3/
           elif [ -f "$DIST_OUT/Image" ]; then
-            cp "$DIST_OUT/Image" AnyKernel3/Image
+            cp "$DIST_OUT/Image" AnyKernel3/
           fi
 
-          if [ -f "$DIST_OUT/dtbo.img" ]; then
-            cp "$DIST_OUT/dtbo.img" AnyKernel3/dtbo.img
-          fi
+          # Copy dtbo.img nếu có
+          [ -f "$DIST_OUT/dtbo.img" ] && cp "$DIST_OUT/dtbo.img" AnyKernel3/
 
-          # Thấu hiểu định dạng AnyKernel cho Pixel 4
+          # Chỉnh anykernel.sh cho Pixel 4 / Pixel 4 XL
           cd AnyKernel3
-          sed -i 's/kernel.string=.*/kernel.string=Pixel 4 KernelSU Next/' anykernel.sh
-          sed -i 's/device.name1=.*/device.name1=coral/' anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=flame/' anykernel.sh
-          
-          zip -r9 ../../Pixel4-KernelSU-Next.zip * -x .git README.md
+          sed -i 's/^kernel\.string=.*/kernel.string=Pixel 4 KernelSU Next/' anykernel.sh
+          sed -i 's/^device\.name1=.*/device.name1=coral/' anykernel.sh
+          sed -i 's/^device\.name2=.*/device.name2=flame/' anykernel.sh
 
-      - name: Upload Kernel Artifact
+          zip -r9 ../Pixel4-KernelSU-Next.zip * -x ".git/*" -x "README.md"
+          echo "=== ZIP tạo thành công ==="
+          ls -lh ../Pixel4-KernelSU-Next.zip
+
+      - name: "⬆️ Upload Artifact"
         uses: actions/upload-artifact@v4
         with:
-          name: Pixel4-KernelSU-Next-Zip
+          name: Pixel4-KernelSU-Next
           path: Pixel4-KernelSU-Next.zip
+          retention-days: 7
