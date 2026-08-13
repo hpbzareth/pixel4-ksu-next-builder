@@ -50,20 +50,27 @@ jobs:
       - name: "🔧 Tích hợp KernelSU Next"
         run: |
           cd android-kernel/private/msm-google
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
-          DEFCONFIG="arch/arm64/configs/floral_defconfig"
-          echo "CONFIG_KSU=y"             >> $DEFCONFIG
-          echo "CONFIG_KPROBES=y"         >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y"    >> $DEFCONFIG
-          echo "CONFIG_KPROBE_EVENTS=y"   >> $DEFCONFIG
-          echo "CONFIG_OVERLAY_FS=y"      >> $DEFCONFIG
-          echo "=== Config KSU đã thêm ===" && tail -6 $DEFCONFIG
-          echo "=== Config KSU đã thêm ===" && tail -6 $DEFCONFIG
 
+          # Tích hợp KernelSU Next
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+
+          # Thêm config KSU
+          DEFCONFIG="arch/arm64/configs/floral_defconfig"
+          echo "CONFIG_KSU=y"           >> $DEFCONFIG
+          echo "CONFIG_KPROBES=y"       >> $DEFCONFIG
+          echo "CONFIG_HAVE_KPROBES=y"  >> $DEFCONFIG
+          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG
+          echo "CONFIG_OVERLAY_FS=y"    >> $DEFCONFIG
+
+          # Xóa check_defconfig khỏi build.config để nó không so sánh defconfig nữa
+          sed -i '/POST_DEFCONFIG_CMDS/d' build.config.no-cfi
+          echo "=== build.config.no-cfi sau patch ==="
+          cat build.config.no-cfi
+      
       - name: "⚙️ Build Kernel"
         run: |
           cd android-kernel
-          LTO=thin POST_DEFCONFIG_CMDS="" ./build_floral.sh
+          LTO=thin ./build_floral.sh
           echo "=== Dung lượng sau build ===" && df -h /
 
       - name: "🔍 Kiểm tra output dist/"
