@@ -1,11 +1,3 @@
-Có **4 thứ cần sửa** trong cái workflow đó:
-
-1. `coral_defconfig` → `floral_defconfig` (file đúng)
-2. Heredoc `<< 'EOF'` → `echo` (YAML không chịu `<<`)
-3. Thêm `sed` xóa `POST_DEFCONFIG_CMDS` trước build (fix lỗi `check_defconfig`)
-4. Copy kernel dùng `find Image*` wildcard thay vì `if/elif` đoán tên
-
-```yaml
 name: Build Pixel 4 KernelSU Next
 
 on:
