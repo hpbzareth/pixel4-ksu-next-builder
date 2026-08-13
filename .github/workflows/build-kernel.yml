@@ -37,13 +37,17 @@ jobs:
           repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-coral-4.14-android13 --depth=1
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
 
-      - name: "🔧 Tích hợp KernelSU Next & Force Config"
+      - name: "🔧 Tích hợp KernelSU Next (Tag v1.0.8 cho Kernel 4.14)"
         run: |
           cd $GITHUB_WORKSPACE/android-kernel/private/msm-google
 
-          # 1. Tải và Patch KSU Next bằng manual hook / setup script
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          # Kéo setup script và truyền đúng tag/branch v1.0.8 vào
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v1.0.8/kernel/setup.sh" | bash -s v1.0.8
 
+          # Pump config thẳng vào defconfig
+          DEFCONFIG="arch/arm64/configs/coral_defconfig"
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
           # 2. Bắn trực tiếp CONFIG_KSU vào CẢ defconfig VÀ build.config để tránh bị wipe
           DEFCONFIG="arch/arm64/configs/coral_defconfig"
           echo "CONFIG_KSU=y" >> $DEFCONFIG
