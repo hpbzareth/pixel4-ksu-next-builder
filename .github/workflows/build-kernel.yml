@@ -37,21 +37,59 @@ jobs:
           repo init -u https://android.googlesource.com/kernel/manifest -b android-msm-coral-4.14-android13 --depth=1
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
 
-      - name: "🔧 Tích hợp KernelSU Next (Tag v1.0.8 cho Kernel 4.14)"
+      - name: "🔧 Tích hợp KernelSU Next & SUSFS (Manual Hook)"
         run: |
           cd $GITHUB_WORKSPACE/android-kernel/private/msm-google
 
-          # Kéo setup script và truyền đúng tag/branch v1.0.8 vào
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v1.0.8/kernel/setup.sh" | bash -s v1.0.8
+          # 1. Kéo KernelSU-Next nhánh có sẵn SUSFS
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v3.1.0-legacy-susfs/kernel/setup.sh" | bash -s v3.1.0-legacy-susfs
 
-          # Pump config thẳng vào defconfig
+          # 2. Disable KPROBES & Enable Manual Hook
+          echo "Disabling KPROBES and applying manual hooks..."
+          scripts/config --file arch/arm64/configs/coral_defconfig -d KPROBES -d KPROBE_EVENTS
+          scripts/config --file arch/arm64/configs/coral_defconfig -e KSU_MANUAL_HOOK
+
+          # 3. Chạy Coccinelle để tự động chèn hook
+          echo "Installing Coccinelle and applying manual hooks..."
+          sudo apt-get update && sudo apt-get install -y coccinelle
+          git clone https://github.com/devnoname120/kernelsu-coccinelle.git ../ksu-cocci
+          cd ../ksu-cocci/classic-hooks
+          bash apply.sh ../../private/msm-google
+          cd ../../private/msm-google
+
+          # 4. Sửa lỗi Forward Declaration trong namespace.c cho KSU Manual Hook (tránh compiler error)
+          perl -pi -e 's/#include "internal.h"/#include "internal.h"\nstatic inline int check_mnt(struct mount *mnt);\nstatic int do_umount(struct mount *mnt, int flags);\nstatic void mntput_no_expire(struct mount *mnt);\nstatic inline bool may_mount(void);\n/g' fs/namespace.c
+          perl -pi -e 's/mutex_lock\(&reboot_mutex\);/#ifdef CONFIG_KSU\nextern void ksu_handle_sys_reboot(void);\nksu_handle_sys_reboot();\n#endif\n\tmutex_lock(&reboot_mutex);/g' kernel/reboot.c
+
+          # 5. Tích hợp SUSFS Kernel Patches
+          echo "Integrating SUSFS Kernel Patches..."
+          git clone --depth=1 --branch kernel-4.14 https://gitlab.com/simonpunk/susfs4ksu.git
+          cp susfs4ksu/kernel_patches/fs/* fs/
+          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
+          patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch || true
+
+          # 6. Ghi config vào defconfig
           DEFCONFIG="arch/arm64/configs/coral_defconfig"
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
-          # 2. Bắn trực tiếp CONFIG_KSU vào CẢ defconfig VÀ build.config để tránh bị wipe
-          DEFCONFIG="arch/arm64/configs/coral_defconfig"
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
+          
+          # SUSFS Configs
+          echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> $DEFCONFIG
 
           # Append thẳng vào build.config.common cho chắc cú
           echo "ARCH=arm64" >> build.config.common
@@ -66,18 +104,6 @@ jobs:
           
           # Chạy build và bắt exit code
           ./build_floral.sh || { echo "❌ BUILD KERNEL BỊ CRASH RỒI CU!"; exit 1; }
-
-      - name: "📁 Debug Scan Tìm File Image Toàn Ổ Đĩa"
-        if: always()
-        run: |
-          echo "=== TÌM TẤT CẢ FILE IMAGE TRONG OUT/ ==="
-          find $GITHUB_WORKSPACE/android-kernel/out/ -name "Image*" -o -name "*.ko" || echo "Éo có file Image nào được tạo ra cả!"
-
-      - name: "🏗️ Build Kernel"
-        run: |
-          cd $GITHUB_WORKSPACE/android-kernel
-          # Gọi đúng script build của Google kèm env toolchain
-          LTO=thin ./build_floral.sh
 
       - name: "📦 Đóng gói AnyKernel3 ZIP"
         run: |
