@@ -52,10 +52,10 @@ jobs:
           # 3. Chạy Coccinelle để tự động chèn hook
           echo "Installing Coccinelle and applying manual hooks..."
           sudo apt-get update && sudo apt-get install -y coccinelle
-          git clone https://github.com/devnoname120/kernelsu-coccinelle.git ../ksu-cocci
-          cd ../ksu-cocci/classic-hooks
-          bash apply.sh ../../private/msm-google
-          cd ../../private/msm-google
+          git clone https://github.com/devnoname120/kernelsu-coccinelle.git $GITHUB_WORKSPACE/ksu-cocci
+          cd $GITHUB_WORKSPACE/ksu-cocci/classic-hooks
+          bash apply.sh $GITHUB_WORKSPACE/android-kernel/private/msm-google
+          cd $GITHUB_WORKSPACE/android-kernel/private/msm-google
 
           # 4. Sửa lỗi Forward Declaration trong namespace.c cho KSU Manual Hook (tránh compiler error)
           perl -pi -e 's/#include "internal.h"/#include "internal.h"\nstatic inline int check_mnt(struct mount *mnt);\nstatic int do_umount(struct mount *mnt, int flags);\nstatic void mntput_no_expire(struct mount *mnt);\nstatic inline bool may_mount(void);\n/g' fs/namespace.c
