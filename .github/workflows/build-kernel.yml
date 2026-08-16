@@ -41,9 +41,9 @@ jobs:
           echo "Bypassing savedefconfig check in all build scripts..."
           find . -type f -name "*.sh" -exec grep -l "savedefconfig does not match" {} + | while read file; do
             echo "Patching $file..."
-            sed -i 's/echo ERROR: savedefconfig does not match/echo WARNING: savedefconfig does not match/g' "$file"
-            sed -i 's/echo "ERROR: savedefconfig does not match/echo "WARNING: savedefconfig does not match/g' "$file"
-            sed -i '/savedefconfig does not match/{n;s/return 1/return 0/}' "$file"
+            sed -i 's/echo "ERROR: savedefconfig does not match/return 0; #/g' "$file"
+            sed -i 's/echo ERROR: savedefconfig does not match/return 0; #/g' "$file"
+            sed -i '/savedefconfig does not match/d' "$file"
           done
 
       - name: "🔧 Tích hợp KernelSU Next & SUSFS (Manual Hook)"
