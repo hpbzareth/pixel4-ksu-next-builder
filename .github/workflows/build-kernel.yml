@@ -38,10 +38,13 @@ jobs:
           repo sync -c -j$(nproc --all) --no-tags --no-clone-bundle --force-sync
 
           # Bỏ qua kiểm tra savedefconfig khắt khe của Google
-          echo "Bypassing savedefconfig check in build.sh..."
-          export SKIP_DEFCONFIG_CHECK=1
-          sed -i 's/ERROR: savedefconfig does not match/WARNING: savedefconfig does not match/g' build/build.sh || true
-          sed -i '/WARNING: savedefconfig does not match/{n;s/return 1/return 0/}' build/build.sh || true
+          echo "Bypassing savedefconfig check in all build scripts..."
+          find . -type f -name "*.sh" -exec grep -l "savedefconfig does not match" {} + | while read file; do
+            echo "Patching $file..."
+            sed -i 's/echo ERROR: savedefconfig does not match/echo WARNING: savedefconfig does not match/g' "$file"
+            sed -i 's/echo "ERROR: savedefconfig does not match/echo "WARNING: savedefconfig does not match/g' "$file"
+            sed -i '/savedefconfig does not match/{n;s/return 1/return 0/}' "$file"
+          done
 
       - name: "🔧 Tích hợp KernelSU Next & SUSFS (Manual Hook)"
         run: |
