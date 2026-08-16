@@ -10,11 +10,16 @@ jobs:
       - name: "🛠 Cài đặt môi trường build"
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc curl git python3 zip unzip rsync
+          sudo apt-get install -y build-essential bc curl git python3 zip unzip rsync lz4
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
+          
+          # Tải kptools-linux và kpimg-android cho APatch
+          wget https://github.com/bmax121/KernelPatch/releases/download/0.13.5/kptools-linux -O ~/bin/kptools-linux
+          wget https://github.com/bmax121/KernelPatch/releases/download/0.13.5/kpimg-android -O ~/bin/kpimg-android
+          chmod a+x ~/bin/kptools-linux
 
       - name: "📥 Clone AnyKernel3"
         run: |
@@ -22,7 +27,7 @@ jobs:
           cd AnyKernel3
           # Cấu hình AnyKernel3 cho Pixel 4 (Coral)
           sed -i 's/device.name1=maguro/device.name1=coral\ndevice.name2=flame/g' anykernel.sh
-          sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=auto;/g' anykernel.sh
+          sed -i 's/block=\/dev\/block\/platform\/omap\/omap_hsmmc.0\/by-name\/boot;/block=\/dev\/block\/bootdevice\/by-name\/boot;/g' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=1;/g' anykernel.sh
 
       - name: "🔄 Repo Init & Sync mã nguồn Kernel Pixel 4"
@@ -71,8 +76,20 @@ jobs:
           export LTO=none
           ./build_floral.sh || { echo "❌ BUILD KERNEL BỊ CRASH RỒI CU!"; exit 1; }
 
-      - name: "📦 Đóng gói AnyKernel3 ZIP"
+      - name: "📦 Patch APatch & Đóng gói AnyKernel3 ZIP"
         run: |
+          cd $GITHUB_WORKSPACE
+          
+          # Patch Kernel raw Image với kptools
+          echo "Patching APatch into Kernel Image..."
+          cd android-kernel/out/android-msm-pixel-4.14/private/msm-google/arch/arm64/boot/
+          ~/bin/kptools-linux -p -i Image -K ~/bin/kpimg-android -k "APatch123" --out Image.patched
+          
+          # Nén lại Image đã patch thành lz4
+          echo "Compressing patched Image to lz4..."
+          lz4 -9 -f Image.patched Image.lz4
+          
+          # Copy vào AnyKernel3 và đóng gói
           cd $GITHUB_WORKSPACE
           cp android-kernel/out/android-msm-pixel-4.14/private/msm-google/arch/arm64/boot/Image.lz4 AnyKernel3/
           cd AnyKernel3
