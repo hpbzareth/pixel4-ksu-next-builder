@@ -44,10 +44,14 @@ jobs:
           # 1. Kéo KernelSU-Next nhánh có sẵn SUSFS
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/v3.1.0-legacy-susfs/kernel/setup.sh" | bash -s v3.1.0-legacy-susfs
 
-          # 2. Disable KPROBES & Enable Manual Hook
+          # 2. Disable KPROBES & Enable Manual Hook for all possible defconfigs
           echo "Disabling KPROBES and applying manual hooks..."
-          scripts/config --file arch/arm64/configs/coral_defconfig -d KPROBES -d KPROBE_EVENTS
-          scripts/config --file arch/arm64/configs/coral_defconfig -e KSU_MANUAL_HOOK
+          for defconf in coral_defconfig floral_defconfig; do
+            if [ -f "arch/arm64/configs/$defconf" ]; then
+              scripts/config --file arch/arm64/configs/$defconf -d KPROBES -d KPROBE_EVENTS
+              scripts/config --file arch/arm64/configs/$defconf -e KSU_MANUAL_HOOK
+            fi
+          done
 
           # 3. Chạy Coccinelle để tự động chèn hook
           echo "Installing Coccinelle and applying manual hooks..."
@@ -60,6 +64,12 @@ jobs:
           # 4. Sửa lỗi Forward Declaration trong namespace.c cho KSU Manual Hook (tránh compiler error)
           perl -pi -e 's/#include "internal.h"/#include "internal.h"\nstatic inline int check_mnt(struct mount *mnt);\nstatic int do_umount(struct mount *mnt, int flags);\nstatic void mntput_no_expire(struct mount *mnt);\nstatic inline bool may_mount(void);\n/g' fs/namespace.c
           perl -pi -e 's/mutex_lock\(&reboot_mutex\);/#ifdef CONFIG_KSU\nextern void ksu_handle_sys_reboot(void);\nksu_handle_sys_reboot();\n#endif\n\tmutex_lock(&reboot_mutex);/g' kernel/reboot.c
+          
+          # Đảm bảo Kbuild của KernelSU-Next tìm thấy hook trong reboot.c
+          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
+            echo "Injecting dummy ksu_handle_sys_reboot comment to satisfy Kbuild..."
+            echo "// ksu_handle_sys_reboot" >> kernel/reboot.c
+          fi
 
           # 5. Tích hợp SUSFS Kernel Patches
           echo "Integrating SUSFS Kernel Patches..."
@@ -69,27 +79,31 @@ jobs:
           patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.14.patch || true
 
           # 6. Ghi config vào defconfig
-          DEFCONFIG="arch/arm64/configs/coral_defconfig"
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
-          
-          # SUSFS Configs
-          echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> $DEFCONFIG
+          for defconf in coral_defconfig floral_defconfig; do
+            if [ -f "arch/arm64/configs/$defconf" ]; then
+              DEFCONFIG="arch/arm64/configs/$defconf"
+              echo "CONFIG_KSU=y" >> $DEFCONFIG
+              echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
+              
+              # SUSFS Configs
+              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> $DEFCONFIG
+            fi
+          done
 
           # Append thẳng vào build.config.common cho chắc cú
           echo "ARCH=arm64" >> build.config.common
