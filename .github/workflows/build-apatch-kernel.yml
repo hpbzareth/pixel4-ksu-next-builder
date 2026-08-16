@@ -83,7 +83,7 @@ jobs:
           # Patch Kernel raw Image với kptools
           echo "Patching APatch into Kernel Image..."
           cd android-kernel/out/android-msm-pixel-4.14/private/msm-google/arch/arm64/boot/
-          ~/bin/kptools-linux -p -i Image -K ~/bin/kpimg-android -k "APatch123" --out Image.patched
+          ~/bin/kptools-linux -p -i Image --kpimg ~/bin/kpimg-android --skey "APatch123" --out Image.patched
           
           # Nén lại Image đã patch thành lz4
           echo "Compressing patched Image to lz4..."
