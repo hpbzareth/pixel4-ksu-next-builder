@@ -39,7 +39,8 @@ jobs:
 
           # Bỏ qua kiểm tra savedefconfig khắt khe của Google
           echo "Bypassing savedefconfig check in build.sh..."
-          sed -i 's/echo ERROR: savedefconfig does not match/echo WARNING: savedefconfig does not match/g' build/build.sh || true
+          export SKIP_DEFCONFIG_CHECK=1
+          sed -i 's/ERROR: savedefconfig does not match/WARNING: savedefconfig does not match/g' build/build.sh || true
           sed -i '/WARNING: savedefconfig does not match/{n;s/return 1/return 0/}' build/build.sh || true
 
       - name: "🔧 Tích hợp KernelSU Next & SUSFS (Manual Hook)"
@@ -118,8 +119,7 @@ jobs:
           
           # Tắt LTO để tránh văng RAM / OOM Compiler crash
           export LTO=none
-          
-          # Chạy build và bắt exit code
+          export SKIP_DEFCONFIG_CHECK=1
           ./build_floral.sh || { echo "❌ BUILD KERNEL BỊ CRASH RỒI CU!"; exit 1; }
 
       - name: "📦 Đóng gói AnyKernel3 ZIP"
